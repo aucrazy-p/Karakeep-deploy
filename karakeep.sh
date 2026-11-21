@@ -38,6 +38,23 @@ get_val() {
   echo "${v:-$def}"
 }
 
+set_env() {
+  # set_env KEY VALUE —— 写入 .env；VALUE 为空则删除该键（用于关闭某功能）
+  local key="$1" val="${2:-}"
+  if [ -z "$val" ]; then
+    [ -f "$ENV_FILE" ] && grep -v "^${key}=" "$ENV_FILE" > "${ENV_FILE}.tmp" && mv "${ENV_FILE}.tmp" "$ENV_FILE"
+    return 0
+  fi
+  # 转义 sed 替换值中的特殊字符，避免 key/url 里的 & \ | 破坏替换
+  local esc
+  esc=$(printf '%s' "$val" | sed 's/[\\&|]/\\&/g')
+  if grep -q "^${key}=" "$ENV_FILE" 2>/dev/null; then
+    sed -i "s|^${key}=.*|${key}=${esc}|" "$ENV_FILE"
+  else
+    printf '%s=%s\n' "$key" "$val" >> "$ENV_FILE"
+  fi
+}
+
 get_port()   { get_val HOST_PORT 3000; }
 get_url()    { get_val NEXTAUTH_URL ""; }
 gen_secret() { openssl rand -base64 36 | tr -dc 'A-Za-z0-9'; }
@@ -332,6 +349,93 @@ do_toggle_signups() {
   fi
 }
 
+# ---------- 14) AI 配置 (OpenAI 兼容 API，自动打标) ----------
+do_ai_config() {
+  local key base tmodel imodel
+  key=$(get_val OPENAI_API_KEY "")
+  base=$(get_val OPENAI_BASE_URL "")
+  tmodel=$(get_val INFERENCE_TEXT_MODEL "")
+  imodel=$(get_val INFERENCE_IMAGE_MODEL "")
+
+  echo -e "${C_C}---------------- AI 配置 (自动打标) ----------------${C_0}"
+  if [ -n "$key" ]; then
+    echo -e " 当前: ${C_G}已启用${C_0}"
+    echo " 接口: ${base:-https://api.openai.com/v1 (官方默认)}"
+    echo " 文本模型: ${tmodel:-默认(gpt-4.1-mini)}"
+    echo " 图片模型: ${imodel:-默认(gpt-4o-mini)}"
+    warn "API Key 已设置(不显示)：${key:0:6}...${key: -4}"
+  else
+    echo -e " 当前: ${C_R}未启用${C_0} (新书签不会自动打标)"
+  fi
+  echo "   1) OpenAI 官方"
+  echo "   2) DeepSeek"
+  echo "   3) 自定义 OpenAI 兼容 API"
+  echo "   4) 关闭 AI 自动打标"
+  echo -e "${C_C}---------------------------------------------------${C_0}"
+  local c
+  read -rp "选择 [1/2/3/4，回车取消]: " c
+  [ -z "$c" ] && { info "已取消"; return 0; }
+
+  local newkey="" newbase="" newt="" newi="" desc=""
+  case "$c" in
+    1)
+      read -rp "OpenAI API Key (sk-...，直接回车保留当前): " newkey
+      newkey=${newkey:-$key}
+      [ -z "$newkey" ] && { err "API Key 不能为空"; return 1; }
+      newbase=""            # 官方：清除 BASE_URL 覆盖
+      newt=""; newi=""      # 官方：用默认模型
+      desc="OpenAI 官方"
+      ;;
+    2)
+      read -rp "DeepSeek API Key (sk-...，直接回车保留当前): " newkey
+      newkey=${newkey:-$key}
+      [ -z "$newkey" ] && { err "API Key 不能为空"; return 1; }
+      newbase="https://api.deepseek.com/v1"
+      newt="deepseek-chat"; newi="deepseek-chat"
+      desc="DeepSeek"
+      ;;
+    3)
+      read -rp "API 地址 (如 https://xxx/v1，直接回车保留当前): " newbase
+      newbase=${newbase:-$base}
+      [ -z "$newbase" ] && { err "API 地址不能为空"; return 1; }
+      read -rp "API Key (直接回车保留当前): " newkey
+      newkey=${newkey:-$key}
+      [ -z "$newkey" ] && { err "API Key 不能为空"; return 1; }
+      read -rp "文本模型 (如 gpt-4.1-mini，回车用默认): " newt
+      read -rp "图片模型 (如 gpt-4o-mini，回车用默认): " newi
+      desc="自定义兼容 API"
+      ;;
+    4)
+      [ -z "$key" ] && { warn "当前未启用 AI，无需关闭"; return 0; }
+      warn "将删除 AI 相关配置并重建 web；已有标签不受影响。"
+      read -rp "输入 YES 确认关闭: " cf
+      [ "$cf" = "YES" ] || { info "已取消"; return 0; }
+      set_env OPENAI_API_KEY ""; set_env OPENAI_BASE_URL ""
+      set_env INFERENCE_TEXT_MODEL ""; set_env INFERENCE_IMAGE_MODEL ""
+      set_env OLLAMA_BASE_URL ""
+      gen_compose
+      dc up -d --force-recreate web && info "AI 自动打标已关闭"
+      return 0
+      ;;
+    *) err "无效选择: $c"; return 1 ;;
+  esac
+
+  # 写入配置（空值由 set_env 删除该键，确保切换预设时不残留旧值）
+  set_env OPENAI_API_KEY "$newkey"
+  set_env OPENAI_BASE_URL "$newbase"
+  set_env INFERENCE_TEXT_MODEL "$newt"
+  set_env INFERENCE_IMAGE_MODEL "$newi"
+  set_env OLLAMA_BASE_URL ""     # 方案 A 用 OPENAI_*，清除可能残留的 ollama 配置
+  gen_compose
+  if dc up -d --force-recreate web; then
+    info "AI 配置已写入并重建 web 容器：${desc}"
+    info "新保存的书签将自动打标（后台任务稍后执行）；语义搜索需另配 EMBEDDING_*，见 README"
+  else
+    err "web 容器重建失败，配置已写入但可能未生效，请查日志（菜单 6）"
+    return 1
+  fi
+}
+
 # ---------- 9) 备份数据 ----------
 do_backup() {
   mkdir -p "$BACKUP_DIR"
@@ -462,7 +566,8 @@ show_menu() {
   menu_line "4)" "停止"         "11)" "卸载"
   menu_line "5)" "重启"         "12)" "重新生成密钥"
   menu_line "6)" "查看日志"     "13)" "注册开关(禁止新注册)"
-  menu_line "7)" "更改端口"     "0)"  "退出"
+  menu_line "7)" "更改端口"     "14)" "AI 配置(自动打标)"
+  echo "  0)  退出"
   echo -e "${C_C}=======================================${C_0}"
 }
 
@@ -481,8 +586,9 @@ case_main() {
     11)         do_uninstall ;;
     12)         do_rekey ;;
     13|signups) do_toggle_signups "${2:-}" ;;
+    14|ai)      do_ai_config ;;
     0)          exit 0 ;;
-    *) err "未知命令: ${1:-} (可用: install|status|start|stop|restart|logs|backup|restore|signups 或菜单编号 1-13)"; return 1 ;;
+    *) err "未知命令: ${1:-} (可用: install|status|start|stop|restart|logs|backup|restore|signups|ai 或菜单编号 1-14)"; return 1 ;;
   esac
 }
 

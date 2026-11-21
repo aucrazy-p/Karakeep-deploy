@@ -6,7 +6,7 @@
 
 - **一键安装**：裸 Linux VPS 一条命令拉起，无需面板依赖
 - **端口安全**：Web 服务只绑 `127.0.0.1`，浏览器与搜索引擎容器不对外暴露
-- **菜单管理**：安装/更新/状态/启停/日志/改端口/改访问地址/注册开关/备份/恢复/重新生成密钥/卸载，全在一个菜单里
+- **菜单管理**：安装/更新/状态/启停/日志/改端口/改访问地址/注册开关/AI 配置/备份/恢复/重新生成密钥/卸载，全在一个菜单里
 - **版本跟随 latest**：官方镜像 `ghcr.io/karakeep-app/karakeep:release`、`:karakeep-chrome:release`、`getmeili/meilisearch:v1.55.0`
 
 ## 一键安装
@@ -41,24 +41,47 @@ curl -fsSL https://cdn.jsdelivr.net/gh/aucrazy-p/Karakeep-deploy@main/install.sh
   4)  停止                            11) 卸载
   5)  重启                            12) 重新生成密钥
   6)  查看日志                        13) 注册开关(禁止新注册)
-  7)  更改端口                        0)  退出
+  7)  更改端口                        14) AI 配置(自动打标)
+  0)  退出
 =======================================
 ```
 
-也支持非交互子命令：`kkp status` / `kkp start` / `kkp stop` / `kkp restart` / `kkp logs` / `kkp backup` / `kkp restore` / `kkp install` / `kkp signups`（后者是注册开关交互菜单，也支持 `kkp signups off` 直接关闭、`kkp signups on` 直接开启）。
+也支持非交互子命令：`kkp status` / `kkp start` / `kkp stop` / `kkp restart` / `kkp logs` / `kkp backup` / `kkp restore` / `kkp install` / `kkp signups`（注册开关交互菜单，也支持 `kkp signups off` 直接关闭、`kkp signups on` 直接开启）/ `kkp ai`（AI 配置交互菜单）。
 
 ### 菜单要点
 
 - **8) 修改访问地址**：Karakeep 的 `NEXTAUTH_URL` 影响登录会话与回调。若对外访问地址与默认的 `http://127.0.0.1:<端口>` 不同，务必改这里。
 - **12) 重新生成密钥**：重新生成 `NEXTAUTH_SECRET`，会让所有用户会话失效（需重新登录）；`MEILI_MASTER_KEY` 不动，否则搜索索引不可用。执行前需输入 `YES` 确认，旧 `.env` 自动备份。
 - **13) 关闭/开启注册**：仅自己使用时，先注册好管理员账号，再选 1 关闭注册（写入 `DISABLE_SIGNUPS=true` 并重建 web 容器）。关闭后注册按钮消失，已有账号照常登录；选 2 可随时重新开放。仅允许现有用户登录，不影响登录与 API。
+- **14) AI 配置**：见下方专节。
+
+## AI 自动打标（菜单 14）
+
+Karakeep 的 AI 用于给新书签自动总结、生成标签，**默认关闭**。官方文档：只要给 web 容器设 `OPENAI_API_KEY` 或 `OLLAMA_BASE_URL` 就会启用，否则跳过。菜单 14 走 OpenAI 兼容 API 方案，填好后写入 `.env` 并自动重建 web 容器。
+
+菜单选项：
+
+| 选项 | 行为 | 写入的配置 |
+|---|---|---|
+| 1) OpenAI 官方 | 只填 Key，清除 BASE_URL 覆盖、模型用默认 | `OPENAI_API_KEY`，删除 `OPENAI_BASE_URL`/模型变量 |
+| 2) DeepSeek | 填 Key，自动套用 DeepSeek 地址与模型 | `OPENAI_API_KEY` + `OPENAI_BASE_URL=https://api.deepseek.com/v1` + `INFERENCE_TEXT_MODEL/IMAGE_MODEL=deepseek-chat` |
+| 3) 自定义兼容 API | 填地址、Key、模型名 | 上述四项全部按输入写入（支持任意 OpenAI 兼容服务：Gemini / OpenRouter / Azure / 自建中转等） |
+| 4) 关闭 | 二次确认后删除全部 AI 配置 | 清空 `OPENAI_*` / `INFERENCE_*` / `OLLAMA_*` |
+
+要点：
+
+- **输入回显**：Key 会明文回显输入（终端 `read` 所致），建议在无人旁观时操作；已设置的 Key 菜单只显示首尾各 4 位。
+- **切换预设不残留**：选 1/2/3 切换服务商时，脚本会删除上一次写入的 `OPENAI_BASE_URL`/模型变量再写新的（官方 OpenAI 会清除 BASE_URL），避免旧值干扰。
+- **生效范围**：只对**新保存**的书签自动打标，存量书签不回溯。
+- **语义搜索**：自定义 BASE_URL 或 Ollama 时，官方默认不自动开 embedding，需另配 `EMBEDDING_TEXT_MODEL` / `EMBEDDING_DIMENSIONS` / `EMBEDDING_ENABLE_AUTO_INDEXING`（用官方 OpenAI 时默认已开）。普通关键词搜索不受影响。
+- **模型质量**：标签效果取决于模型；`INFERENCE_CONTEXT_LENGTH` 默认偏小，想提升效果可调大（更费 token）。自定义 API 的 Key/地址/模型名务必与该服务商文档一致。
 
 ## 目录结构（VPS 上）
 
 | 路径 | 用途 |
 |---|---|
 | `/opt/karakeep-deploy/karakeep.sh` | 管理菜单脚本（`/usr/local/bin/kkp` 软链） |
-| `/opt/karakeep-deploy/.env` | 配置：`HOST_PORT`、`NEXTAUTH_URL`、`MEILI_MASTER_KEY`、`NEXTAUTH_SECRET`、`DISABLE_SIGNUPS`（注册开关，由菜单 13 写入） |
+| `/opt/karakeep-deploy/.env` | 配置：`HOST_PORT`、`NEXTAUTH_URL`、`MEILI_MASTER_KEY`、`NEXTAUTH_SECRET`、`DISABLE_SIGNUPS`（注册开关，菜单 13）、`OPENAI_*`/`INFERENCE_*`（AI 配置，菜单 14） |
 | `/opt/karakeep-deploy/docker-compose.yml` | 实际 compose（由 karakeep.sh 生成） |
 | `/opt/karakeep-deploy/backups/` | 备份（保留最近 10 份） |
 | `/opt/karakeep/data/` | Web 数据（挂载到容器 `/data`） |
