@@ -420,25 +420,50 @@ do_uninstall() {
 }
 
 # ---------- 菜单 ----------
+# 终端显示宽度：ASCII 算 1 列，中文/全角算 2 列
+_str_width() {
+  local s="$1" n=0 i ch o
+  for (( i=0; i<${#s}; i++ )); do
+    ch="${s:i:1}"
+    printf -v o '%d' "'$ch" 2>/dev/null || o=0
+    if [ "$o" -ge 32 ] && [ "$o" -le 126 ]; then
+      n=$((n + 1))
+    else
+      n=$((n + 2))
+    fi
+  done
+  echo "$n"
+}
+
+# 一行两项：编号(含右括号)左对齐固定 3 列，左描述固定 30 列，右列起点恒定
+menu_line() {
+  local lnum="$1" ldesc="$2" rnum="$3" rdesc="$4"
+  local w pad
+  w=$(_str_width "$ldesc")
+  pad=$((30 - w))
+  [ "$pad" -lt 1 ] && pad=1
+  printf "  %-3s %s%*s  %-3s %s\n" "$lnum" "$ldesc" "$pad" "" "$rnum" "$rdesc"
+}
+
 show_menu() {
   clear
   local st port
   st=$(container_status); port=$(get_port)
-  echo -e "${C_C}======== Karakeep 管理菜单 ========${C_0}"
+  echo -e "${C_C}========== Karakeep 管理菜单 ==========${C_0}"
   if [ "$st" = "running" ]; then
-    echo -e " 状态: ${C_G}运行中${C_0}  端口: 127.0.0.1:${port}"
+    echo -e " 状态: ${C_G}运行中${C_0}   端口: 127.0.0.1:${port}"
   else
     echo -e " 状态: ${C_R}${st}${C_0}"
   fi
-  echo -e "${C_C}===================================${C_0}"
-  echo " 1) 安装 / 更新         8) 修改访问地址(NEXTAUTH_URL)"
-  echo " 2) 状态                9) 备份数据"
-  echo " 3) 启动   4) 停止      10) 恢复数据"
-  echo " 5) 重启   6) 查看日志  11) 卸载"
-  echo " 7) 更改端口            12) 重新生成密钥"
-  echo " 13) 关闭/开启注册 (禁止新用户注册)"
-  echo " 0) 退出"
-  echo -e "${C_C}===================================${C_0}"
+  echo -e "${C_C}=======================================${C_0}"
+  menu_line "1)" "安装 / 更新"  "8)"  "修改访问地址(NEXTAUTH_URL)"
+  menu_line "2)" "状态"         "9)"  "备份数据"
+  menu_line "3)" "启动"         "10)" "恢复数据"
+  menu_line "4)" "停止"         "11)" "卸载"
+  menu_line "5)" "重启"         "12)" "重新生成密钥"
+  menu_line "6)" "查看日志"     "13)" "注册开关(禁止新注册)"
+  menu_line "7)" "更改端口"     "0)"  "退出"
+  echo -e "${C_C}=======================================${C_0}"
 }
 
 case_main() {
