@@ -6,7 +6,7 @@
 
 - **一键安装**：裸 Linux VPS 一条命令拉起，无需面板依赖
 - **端口安全**：Web 服务只绑 `127.0.0.1`，浏览器与搜索引擎容器不对外暴露
-- **菜单管理**：安装/更新/状态/启停/日志/改端口/改访问地址/备份/恢复/重新生成密钥/卸载，全在一个菜单里
+- **菜单管理**：安装/更新/状态/启停/日志/改端口/改访问地址/注册开关/备份/恢复/重新生成密钥/卸载，全在一个菜单里
 - **版本跟随 latest**：官方镜像 `ghcr.io/karakeep-app/karakeep:release`、`:karakeep-chrome:release`、`getmeili/meilisearch:v1.55.0`
 
 ## 一键安装
@@ -38,23 +38,25 @@ curl -fsSL https://cdn.jsdelivr.net/gh/aucrazy-p/Karakeep-deploy@main/install.sh
  3) 启动   4) 停止      10) 恢复数据
  5) 重启   6) 查看日志  11) 卸载
  7) 更改端口            12) 重新生成密钥
+ 13) 关闭/开启注册 (禁止新用户注册)
  0) 退出
 ===================================
 ```
 
-也支持非交互子命令：`kkp status` / `kkp start` / `kkp stop` / `kkp restart` / `kkp logs` / `kkp backup` / `kkp restore` / `kkp install`。
+也支持非交互子命令：`kkp status` / `kkp start` / `kkp stop` / `kkp restart` / `kkp logs` / `kkp backup` / `kkp restore` / `kkp install` / `kkp signups`（后者是注册开关交互菜单，也支持 `kkp signups off` 直接关闭、`kkp signups on` 直接开启）。
 
 ### 菜单要点
 
 - **8) 修改访问地址**：Karakeep 的 `NEXTAUTH_URL` 影响登录会话与回调。若对外访问地址与默认的 `http://127.0.0.1:<端口>` 不同，务必改这里。
 - **12) 重新生成密钥**：重新生成 `NEXTAUTH_SECRET`，会让所有用户会话失效（需重新登录）；`MEILI_MASTER_KEY` 不动，否则搜索索引不可用。执行前需输入 `YES` 确认，旧 `.env` 自动备份。
+- **13) 关闭/开启注册**：仅自己使用时，先注册好管理员账号，再选 1 关闭注册（写入 `DISABLE_SIGNUPS=true` 并重建 web 容器）。关闭后注册按钮消失，已有账号照常登录；选 2 可随时重新开放。仅允许现有用户登录，不影响登录与 API。
 
 ## 目录结构（VPS 上）
 
 | 路径 | 用途 |
 |---|---|
 | `/opt/karakeep-deploy/karakeep.sh` | 管理菜单脚本（`/usr/local/bin/kkp` 软链） |
-| `/opt/karakeep-deploy/.env` | 配置：`HOST_PORT`、`NEXTAUTH_URL`、`MEILI_MASTER_KEY`、`NEXTAUTH_SECRET` |
+| `/opt/karakeep-deploy/.env` | 配置：`HOST_PORT`、`NEXTAUTH_URL`、`MEILI_MASTER_KEY`、`NEXTAUTH_SECRET`、`DISABLE_SIGNUPS`（注册开关，由菜单 13 写入） |
 | `/opt/karakeep-deploy/docker-compose.yml` | 实际 compose（由 karakeep.sh 生成） |
 | `/opt/karakeep-deploy/backups/` | 备份（保留最近 10 份） |
 | `/opt/karakeep/data/` | Web 数据（挂载到容器 `/data`） |

@@ -280,6 +280,58 @@ do_rekey() {
   dc up -d && info "密钥已更新, 请重新登录 (旧配置备份: ${ENV_FILE}.bak-${ts})"
 }
 
+# ---------- 13) 关闭/开启注册 ----------
+do_toggle_signups() {
+  local arg="${1:-}"
+  local cur; cur=$(get_val DISABLE_SIGNUPS "false")
+  local state
+  if [ "$cur" = "true" ]; then
+    state="${C_R}已关闭${C_0}（禁止新注册，仅现有账号可登录）"
+  else
+    state="${C_G}开放中${C_0}（任何人可注册）"
+  fi
+  echo -e "${C_C}---------------- 注册开关 ----------------${C_0}"
+  echo -e " 当前: ${state}"
+  echo "   1) 关闭注册 (off) —— 仅自己使用时推荐"
+  echo "   2) 开放注册 (on)"
+  echo -e "${C_C}------------------------------------------${C_0}"
+
+  local c="$arg"
+  if [ -z "$c" ]; then
+    read -rp "选择 [1/2，回车取消]: " c
+    [ -z "$c" ] && { info "已取消"; return 0; }
+  fi
+
+  local val desc
+  case "$c" in
+    1|off|disable) val="true";  desc="注册已关闭" ;;
+    2|on|enable)   val="false"; desc="注册已开放" ;;
+    *) err "无效选择: $c (可用 1/off 关闭，2/on 开放)"; return 1 ;;
+  esac
+
+  [ "$cur" = "$val" ] && { warn "当前已是该状态，无需改动"; return 0; }
+
+  # 关闭注册有把自己锁在外面的风险，交互模式下需二次确认
+  if [ "$val" = "true" ] && [ -z "$arg" ]; then
+    warn "关闭后新用户无法注册。请确认已注册好自己的管理员账号，否则将无法登录！"
+    read -rp "输入 YES 确认关闭: " cf
+    [ "$cf" = "YES" ] || { info "已取消"; return 0; }
+  fi
+
+  if grep -q '^DISABLE_SIGNUPS=' "$ENV_FILE"; then
+    sed -i "s|^DISABLE_SIGNUPS=.*|DISABLE_SIGNUPS=$val|" "$ENV_FILE"
+  else
+    echo "DISABLE_SIGNUPS=$val" >> "$ENV_FILE"
+  fi
+  gen_compose
+  if dc up -d --force-recreate web; then
+    info "$desc (web 容器已重建；配置见 $ENV_FILE)"
+  else
+    err "web 容器重建失败，配置已写入但可能未生效，请查日志（菜单 6）"
+    return 1
+  fi
+}
+
 # ---------- 9) 备份数据 ----------
 do_backup() {
   mkdir -p "$BACKUP_DIR"
@@ -384,6 +436,7 @@ show_menu() {
   echo " 3) 启动   4) 停止      10) 恢复数据"
   echo " 5) 重启   6) 查看日志  11) 卸载"
   echo " 7) 更改端口            12) 重新生成密钥"
+  echo " 13) 关闭/开启注册 (禁止新用户注册)"
   echo " 0) 退出"
   echo -e "${C_C}===================================${C_0}"
 }
@@ -402,8 +455,9 @@ case_main() {
     10|restore) do_restore ;;
     11)         do_uninstall ;;
     12)         do_rekey ;;
+    13|signups) do_toggle_signups "${2:-}" ;;
     0)          exit 0 ;;
-    *) err "未知命令: ${1:-} (可用: install|status|start|stop|restart|logs|backup|restore 或菜单编号 1-12)"; return 1 ;;
+    *) err "未知命令: ${1:-} (可用: install|status|start|stop|restart|logs|backup|restore|signups 或菜单编号 1-13)"; return 1 ;;
   esac
 }
 
@@ -416,9 +470,10 @@ if [[ "${BASH_SOURCE[0]}" == "${0:-}" ]]; then
     exit 1
   fi
 
-  # 支持非交互调用: karakeep.sh start / karakeep.sh status ...
+  # 支持非交互调用: karakeep.sh start / karakeep.sh status / karakeep.sh signups off ...
+  # 透传全部参数, 使 signups 的第二个参数(off/on)可被 do_toggle_signups 读取
   if [ -n "${1:-}" ] && [ "${1:-}" != "menu" ]; then
-    case_main "${1:-}"
+    case_main "$@"
     exit $?
   fi
 
