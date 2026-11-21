@@ -1,0 +1,8 @@
+# 强制 LF 行尾：这些文件会被 Linux VPS 用 curl|bash 执行或解析，
+# Windows 下 core.autocrlf=true 会把 LF 转成 CRLF，导致 shell 脚本在 Linux 上报
+# "bad interpreter / $'\r': command not found"。
+* text=auto eol=lf
+*.sh text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.md text eol=lf

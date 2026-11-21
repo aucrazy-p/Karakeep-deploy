@@ -1,0 +1,69 @@
+# Karakeep docker-compose 模板 (aucrazy-p/Karakeep-deploy)
+#
+# 注意: 实际部署文件由管理菜单 karakeep.sh 动态生成到
+#       /opt/karakeep-deploy/docker-compose.yml, 会按 .env 渲染 HOST_PORT 与 NEXTAUTH_URL。
+#       本文件仅作展示, 请勿直接手工维护服务器上的实际 compose。
+#
+# 上游项目: https://github.com/karakeep-app/karakeep
+# Web 端口仅绑定 127.0.0.1, 公网访问由用户自行配置。
+# 不生成 networks 段。
+
+name: karakeep
+
+services:
+  web:
+    image: ghcr.io/karakeep-app/karakeep:release
+    container_name: karakeep
+    restart: unless-stopped
+    volumes:
+      - /opt/karakeep/data:/data
+    ports:
+      - "127.0.0.1:3000:3000"   # 仅绑定本机, 公网访问由用户自行配置反代
+    env_file:
+      - .env
+    environment:
+      MEILI_ADDR: http://meilisearch:7700
+      BROWSER_WEB_URL: http://chrome:9222
+      DATA_DIR: /data
+      NEXTAUTH_URL: http://127.0.0.1:3000
+    depends_on:
+      - chrome
+      - meilisearch
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  chrome:
+    image: ghcr.io/karakeep-app/karakeep-chrome:release
+    container_name: karakeep-chrome
+    restart: unless-stopped
+    init: true
+    command:
+      - --disable-gpu
+      - --disable-dev-shm-usage
+      - --hide-scrollbars
+      - --disable-blink-features=AutomationControlled
+      - --window-size=1440,900
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  meilisearch:
+    image: getmeili/meilisearch:v1.55.0
+    container_name: karakeep-meilisearch
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      MEILI_NO_ANALYTICS: "true"
+    volumes:
+      - /opt/karakeep/meili:/meili_data
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
